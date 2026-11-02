@@ -184,8 +184,10 @@ const platforms = [
 const allTools = platforms;
 const platformBySlug = Object.fromEntries(allTools.map((platform) => [platform.slug, platform]));
 const SITE_BASE_URL = "https://snapvideohub.com/";
-const COOKIE_CONSENT_KEY = "snapvideohub-cookie-consent";
+const COOKIE_CONSENT_KEY = "snapvideohub-cookie-consent-v2";
+const LEGACY_COOKIE_CONSENT_KEY = "snapvideohub-cookie-consent";
 const GOOGLE_ANALYTICS_ID = "G-SWN1H5TQS2";
+const GOOGLE_ADS_ID = "AW-11083388283";
 const redirectDestinations = {
   youtube: ["https://tech-trans.com.pl/", "https://vidssave.com/youtube-video-downloader-8hs", "https://www.snapyt.app/"],
   instagram: ["https://fastdl.app/en5IW", "https://videodropper.app/", "https://indown.io/en5"],
@@ -532,8 +534,8 @@ const legalDocs = {
     intro: "Protecting user privacy and maintaining a secure browsing experience is a high priority for SnapVideoHub.",
     sections: [
       ["Information We Collect", ["Browser type and version", "Operating system", "Device type", "IP address", "Language preferences", "Referral source", "Website usage statistics"]],
-      ["Cookies and Browser Storage", ["Theme, language, and cookie consent choices are stored in your browser's local storage.", "Selecting a language may set Google's googtrans preference cookie.", "Optional Google Analytics is off by default. If you allow analytics, Google may set cookies such as _ga to measure website usage.", "Use Cookie Settings in the footer to change your analytics choice. Rejecting analytics does not prevent use of the site.", "Third-party video services opened by you may use their own cookies and tracking. Review their privacy information; SnapVideoHub does not control those sites."]],
-      ["Third-Party Services", ["Google Analytics (only after you allow analytics)", "Google Translate (when you select a translated language)", "Cloud hosting providers", "CDN and security services"]],
+      ["Cookies and Browser Storage", ["Theme, language, and cookie consent choices are stored in your browser's local storage.", "Selecting a language may set Google's googtrans preference cookie.", "Optional Google Analytics is off unless you allow analytics. Google may set cookies such as _ga to measure website usage.", "Google Ads measurement is off unless you allow analytics and ads measurement. Google may use advertising identifiers and cookies such as _gcl_* to measure ad visits and conversions.", "Use Cookie Settings in the footer to change your choice. Necessary-only browsing does not prevent use of the site.", "Third-party video services opened by you may use their own cookies and tracking. Review their privacy information; SnapVideoHub does not control those sites."]],
+      ["Third-Party Services", ["Google Analytics (only after you allow analytics)", "Google Ads (only after you allow analytics and ads measurement)", "Google Translate (when you select a translated language)", "Cloud hosting providers", "CDN and security services"]],
       ["Service Description", ["SnapVideoHub is a video-link directory that passes public video URLs to third-party services selected by users.", "SnapVideoHub does not process or host video files. Review each third-party service's privacy policy and terms before using it."]],
       ["What We Do Not Collect", ["Social media passwords", "Private account credentials", "Personal payment information", "Private messages or chats"]],
       ["Data Security", ["We use standard security practices and encrypted infrastructure to reduce unauthorized access, abuse, and malicious activity."]],
@@ -1048,12 +1050,13 @@ function initializeCookieConsent() {
   banner.innerHTML = `
     <div class="cookie-banner-copy">
       <h2 id="cookie-banner-title">Cookie preferences</h2>
-      <p>Language preferences use a cookie. Optional analytics stays off unless you allow it. External sites have separate privacy policies.</p>
+      <p>Optional analytics and ad measurement stay off unless you allow them. You can choose analytics only, or analytics plus Google Ads measurement. External sites have separate privacy policies.</p>
       <a href="legal.html?doc=privacy">Read our Privacy Policy</a>
     </div>
     <div class="cookie-banner-actions">
       <button class="btn btn-secondary" type="button" data-cookie-essential>Necessary only</button>
-      <button class="btn btn-primary" type="button" data-cookie-analytics>Allow analytics</button>
+      <button class="btn btn-secondary" type="button" data-cookie-analytics>Analytics only</button>
+      <button class="btn btn-primary" type="button" data-cookie-measurement>Allow analytics and ads measurement</button>
     </div>
   `;
   document.body.appendChild(banner);
@@ -1061,10 +1064,11 @@ function initializeCookieConsent() {
   const saveConsent = (consent) => {
     localStorage.setItem(COOKIE_CONSENT_KEY, consent);
     banner.hidden = true;
-    setGoogleAnalyticsConsent(consent === "analytics");
+    setGoogleMeasurementConsent(consent);
   };
   banner.querySelector("[data-cookie-essential]")?.addEventListener("click", () => saveConsent("essential"));
   banner.querySelector("[data-cookie-analytics]")?.addEventListener("click", () => saveConsent("analytics"));
+  banner.querySelector("[data-cookie-measurement]")?.addEventListener("click", () => saveConsent("measurement"));
   document.querySelectorAll("[data-cookie-settings]").forEach((button) => {
     button.addEventListener("click", () => {
       banner.hidden = false;
@@ -1072,44 +1076,65 @@ function initializeCookieConsent() {
     });
   });
 
-  const consent = localStorage.getItem(COOKIE_CONSENT_KEY);
-  if (consent === "analytics") {
-    setGoogleAnalyticsConsent(true);
+  let consent = localStorage.getItem(COOKIE_CONSENT_KEY);
+  if (!consent && localStorage.getItem(LEGACY_COOKIE_CONSENT_KEY) === "essential") {
+    consent = "essential";
+    localStorage.setItem(COOKIE_CONSENT_KEY, consent);
+  }
+  if (consent === "analytics" || consent === "measurement") {
+    setGoogleMeasurementConsent(consent);
   } else if (consent !== "essential") {
     banner.hidden = false;
   }
 }
 
-function setGoogleAnalyticsConsent(allowed) {
-  const analyticsScriptId = "google-analytics-script";
-  const analyticsScript = document.getElementById(analyticsScriptId);
-  if (!allowed) clearGoogleAnalyticsCookies();
-  if (!allowed && !analyticsScript) return;
+function setGoogleMeasurementConsent(consent) {
+  const analyticsAllowed = consent === "analytics" || consent === "measurement";
+  const adsAllowed = consent === "measurement";
+  const googleScriptId = "google-measurement-script";
+  const googleScript = document.getElementById(googleScriptId);
+  if (!analyticsAllowed) clearGoogleMeasurementCookies();
+  if (!analyticsAllowed && !googleScript) return;
 
   window.dataLayer = window.dataLayer || [];
   window.gtag = window.gtag || function () {
     window.dataLayer.push(arguments);
   };
-  window.gtag("consent", "default", { analytics_storage: "denied" });
-  window.gtag("consent", "update", { analytics_storage: allowed ? "granted" : "denied" });
+  window.gtag("consent", "default", {
+    analytics_storage: "denied",
+    ad_storage: "denied",
+    ad_user_data: "denied",
+    ad_personalization: "denied"
+  });
+  window.gtag("consent", "update", {
+    analytics_storage: analyticsAllowed ? "granted" : "denied",
+    ad_storage: adsAllowed ? "granted" : "denied",
+    ad_user_data: adsAllowed ? "granted" : "denied",
+    ad_personalization: "denied"
+  });
 
-  if (allowed && !analyticsScript) {
+  if (analyticsAllowed && !googleScript) {
     window.gtag("js", new Date());
     window.gtag("config", GOOGLE_ANALYTICS_ID);
     const script = document.createElement("script");
-    script.id = analyticsScriptId;
+    script.id = googleScriptId;
     script.async = true;
     script.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`;
-    script.onerror = () => showToast("Analytics could not load. The site remains available.");
+    script.onerror = () => showToast("Google measurement could not load. The site remains available.");
     document.head.appendChild(script);
+  }
+
+  if (adsAllowed && !window.snapVideoHubAdsTagConfigured) {
+    window.gtag("config", GOOGLE_ADS_ID);
+    window.snapVideoHubAdsTagConfigured = true;
   }
 }
 
-function clearGoogleAnalyticsCookies() {
+function clearGoogleMeasurementCookies() {
   const names = document.cookie
     .split(";")
     .map((cookie) => cookie.split("=")[0].trim())
-    .filter((name) => name === "_ga" || name.startsWith("_ga_"));
+    .filter((name) => name === "_ga" || name.startsWith("_ga_") || name.startsWith("_gcl_"));
   const domain = canUseDomainCookie(location.hostname) ? `; domain=.${location.hostname}` : "";
   names.forEach((name) => {
     document.cookie = `${name}=; Max-Age=0; path=/${domain}`;
